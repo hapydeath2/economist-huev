@@ -4,7 +4,7 @@ import praw
 import json
 import os
 
-
+TOKEN = os.getenv('DISCORD_TOKEN')
 
 DATA_FILE = 'users_data.json'
 
