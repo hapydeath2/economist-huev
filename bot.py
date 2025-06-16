@@ -1,53 +1,84 @@
 import discord
 from discord.ext import commands
-import praw
 import json
 import os
 import asyncio
-import subprocess
 import datetime
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 
-DATA_FILE = 'users_data.json'
+# Базовая директория для хранения данных.
+# Этот путь ТОЧНО соответствует Mount Path вашего Volume в Railway.
+DATA_DIR = '/data' # <--- Исправлено, теперь соответствует вашему Mount Path
 
-SHOP_FILE = 'shop.json'
+DATA_FILE = os.path.join(DATA_DIR, 'users_data.json')
+SHOP_FILE = os.path.join(DATA_DIR, 'shop.json')
 
 ROLE_FOR_SHOP_ADDS = 1383053097672380456
 
 intents = discord.Intents.default()
-intents.message_content = True 
+intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 def load_data():
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(DATA_FILE):
-        return{}
-    with open(DATA_FILE, 'r') as f:
-        return json.load(f)
-    
+        return {}
+    try:
+        with open(DATA_FILE, 'r') as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        print(f"[{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Error decoding JSON from {DATA_FILE}. Returning empty data.")
+        return {}
+    except Exception as e:
+        print(f"[{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] An error occurred while loading data: {e}")
+        return {}
+
+
 def save_data(data):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f, indent=4)
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
+    try:
+        with open(DATA_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"[{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] An error occurred while saving data: {e}")
 
 def load_shop():
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
     if not os.path.exists(SHOP_FILE):
-        return[]
-    with open(SHOP_FILE, "r") as f:
-        return json.load(f)
+        return []
+    try:
+        with open(SHOP_FILE, "r") as f:
+            return json.load(f)
+    except json.JSONDecodeError:
+        print(f"[{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] Error decoding JSON from {SHOP_FILE}. Returning empty shop.")
+        return []
+    except Exception as e:
+        print(f"[{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] An error occurred while loading shop: {e}")
+        return []
+
 
 def save_shop(shop):
-    with open(SHOP_FILE, "w") as f:
-        json.dump(shop, f, indent=4)
-    
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
+    try:
+        with open(SHOP_FILE, "w") as f:
+            json.dump(shop, f, indent=4)
+    except Exception as e:
+        print(f"[{datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC] An error occurred while saving shop: {e}")
+
 def add_user_if_needed(user_id):
     data = load_data()
     user_id = str(user_id)
     if user_id not in data:
         data[user_id] = {"coins": 0, "daily_streak":0}
         save_data(data)
-    
+
 def add_coins(user_id, amount):
     data = load_data()
     user_id=str(user_id)
@@ -56,26 +87,15 @@ def add_coins(user_id, amount):
     data[user_id]["coins"] += amount
     save_data(data)
 
-async def auto_commit_task():
-    await bot.wait_until_ready()
-    while not bot.is_closed():
-        try:
-            subprocess.run(["git", "config", "user.name", "railway-bot"], check=True)
-            subprocess.run(["git", "config", "user.email", "railway@bot.com"], check=True)
-            subprocess.run(["git", "add", "users_data.json", "shop.json"], check=True)
-            now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            subprocess.run(["git", "commit", "-m", f"Auto-update from Railway at {now} UTC"], check=False)
-            subprocess.run([
-                "git", "push",
-                f"https://{os.getenv('GH_PUSH_TOKEN')}@github.com/hapydeath2/economist-huev.git"
-            ], check=False)
-            print(f"[{now}] Коммит отправлен")
-        except Exception as e:
-            print("Ошибка при автокоммите:", e)
-        await asyncio.sleep(300)
+
 @bot.event
 async def on_ready():
     print(f'We have logged in as {bot.user}')
+    # Убедимся, что директория для данных существует при старте бота
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        print(f"Created data directory: {DATA_DIR}")
+
     data = load_data()
     added = 0
     for guild in bot.guilds:
@@ -86,7 +106,7 @@ async def on_ready():
                 data[str(member.id)] = {"coins": 0, "daily_streak":0}
                 added+=1
     save_data(data)
-    print(f"Добавленно {added} пользователей в базу данных")
+    print(f"Добавлено {added} пользователей в базу данных")
 
 @bot.event
 async def on_member_join(member):
@@ -102,27 +122,30 @@ async def on_message(message):
 
 @bot.command()
 async def shop(ctx):
-    shop = load_shop()
+    shop_items = load_shop()
     embed = discord.Embed(title="🛒 Магазин ролей", color=discord.Color.blue())
 
-    for i, item in enumerate(shop, start=1):
-        embed.add_field(
-            name=f"{i}. {item['name']}",
-            value=f"Цена: {item['price']} монет",
-            inline=False
-        )
+    if not shop_items:
+        embed.description = "Магазин пуст. Добавьте роли с помощью команды `!addrole`."
+    else:
+        for i, item in enumerate(shop_items, start=1):
+            embed.add_field(
+                name=f"{i}. {item['name']}",
+                value=f"Цена: {item['price']} монет",
+                inline=False
+            )
     await ctx.send(embed=embed)
 
 @bot.command()
 async def buy(ctx, номер: int):
-    shop = load_shop()
+    shop_items = load_shop()
     data = load_data()
     user_id = str(ctx.author.id)
-    
-    if номер < 1 or номер > len(shop):
+
+    if номер < 1 or номер > len(shop_items):
         await ctx.send("Неверный номер роли")
         return
-    item = shop[номер - 1]
+    item = shop_items[номер - 1]
     role = ctx.guild.get_role(item["id"])
     if not role:
         await ctx.send("Роль не найдена на сервере")
@@ -150,15 +173,19 @@ async def users(ctx):
         await ctx.send("База данных пуста")
         return
     lines = []
-    for user_id in data:
+    sorted_users = sorted(data.items(), key=lambda item: item[1].get("coins", 0), reverse=True)
+
+    for user_id, user_data in sorted_users:
         member = ctx.guild.get_member(int(user_id))
         if member:
             name = member.display_name
         else:
             name = f"Пользователь ({user_id})"
-        coins = data[user_id].get("coins", 0)
+        coins = user_data.get("coins", 0)
         lines.append(f" **{name}** - {coins} монет")
-    message = "\n".join(lines)
+
+    message = "💰 **Балансы пользователей:**\n" + "\n".join(lines)
+
     if len(message) > 1900:
         chunks = [message[i:i+1900] for i in range(0, len(message), 1900)]
         for chunk in chunks:
@@ -184,8 +211,9 @@ async def addrole(ctx):
         msg = await ctx.send("Ебать ты тормоз конечно")
         await asyncio.sleep(10)
         await msg.delete()
+        await ctx.message.delete()
         return
-    
+
     role_name = role_msg.content.strip()
 
     await ctx.send("Введите цену роли: ")
@@ -196,8 +224,9 @@ async def addrole(ctx):
         msg = await ctx.send("Ну и хули ты молчишь быдло")
         await asyncio.sleep(10)
         await msg.delete()
+        await ctx.message.delete()
         return
-    
+
     try:
         price = int(price_msg.content.strip())
         if price<0:
@@ -209,7 +238,16 @@ async def addrole(ctx):
         await role_msg.delete()
         await price_msg.delete()
         return
-    
+
+    existing_role = discord.utils.get(ctx.guild.roles, name=role_name)
+    if existing_role:
+        await ctx.send(f"Роль с именем **{role_name}** уже существует на сервере. Используйте ее ID для добавления в магазин.")
+        await ctx.send(f"Чтобы добавить существующую роль в магазин, используйте команду `!addexistingrole <RoleID> <Price>`.")
+        await role_msg.delete()
+        await price_msg.delete()
+        await ctx.message.delete()
+        return
+
     try:
         role = await ctx.guild.create_role(name=role_name)
     except discord.Forbidden:
@@ -220,21 +258,20 @@ async def addrole(ctx):
         await price_msg.delete()
         return
 
-    shop = load_shop()
-
-    for item in shop:
+    shop_items = load_shop()
+    for item in shop_items:
         if item['id'] == role.id:
             msg = await ctx.send(f"Роль **{role.name}** уже есть в магазине")
             await asyncio.sleep(10)
             await msg.delete()
             return
-    shop.append({
+    shop_items.append({
         "id": role.id,
         "name": role.name,
         "price": price
     })
 
-    save_shop(shop)
+    save_shop(shop_items)
 
     confirm_msg = await ctx.send(f"Роль **{role_name}** добавлена в магазин за {price} монет")
 
@@ -244,6 +281,37 @@ async def addrole(ctx):
     await price_msg.delete()
     await ctx.message.delete()
 
-bot.loop.create_task(auto_commit_task())
-bot.run(TOKEN)
+@bot.command()
+async def addexistingrole(ctx, role_id: int, price: int):
+    author_roles_ids = [r.id for r in ctx.author.roles]
+    if ROLE_FOR_SHOP_ADDS not in author_roles_ids:
+        msg = await ctx.send("Ты че выебываешься тупиздень у тебя прав нет")
+        await asyncio.sleep(10)
+        await msg.delete()
+        await ctx.message.delete()
+        return
 
+    role = ctx.guild.get_role(role_id)
+    if not role:
+        await ctx.send("Роль с таким ID не найдена на сервере.")
+        return
+
+    if price < 0:
+        await ctx.send("Цена не может быть отрицательной.")
+        return
+
+    shop_items = load_shop()
+    for item in shop_items:
+        if item['id'] == role.id:
+            await ctx.send(f"Роль **{role.name}** (ID: {role.id}) уже есть в магазине.")
+            return
+
+    shop_items.append({
+        "id": role.id,
+        "name": role.name,
+        "price": price
+    })
+    save_shop(shop_items)
+    await ctx.send(f"Существующая роль **{role.name}** (ID: {role.id}) добавлена в магазин за {price} монет.")
+
+bot.run(TOKEN)
