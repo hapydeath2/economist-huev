@@ -72,7 +72,7 @@ async def auto_commit_task():
             print(f"[{now}] Коммит отправлен")
         except Exception as e:
             print("Ошибка при автокоммите:", e)
-        await asyncio.sleep(3600)
+        await asyncio.sleep(300)
 @bot.event
 async def on_ready():
     print(f'We have logged in as {bot.user}')
