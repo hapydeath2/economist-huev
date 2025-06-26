@@ -16,7 +16,7 @@ SHOP_FILE = os.path.join(DATA_DIR, 'shop.json')
 
 ROLE_FOR_SHOP_ADDS = 1383053097672380456
 
-OWNER_DISCORD_ID = YOUR_DISCORD_ID_HERE # <-- ЗАМЕНИТЕ ЭТОТ ПЛЕЙСХОЛДЕР НА ВАШ ID!
+OWNER_DISCORD_ID = 502834249666265089 # <-- ЗАМЕНИТЕ ЭТОТ ПЛЕЙСХОЛДЕР НА ВАШ ID!
 
 intents = discord.Intents.default()
 intents.message_content = True
